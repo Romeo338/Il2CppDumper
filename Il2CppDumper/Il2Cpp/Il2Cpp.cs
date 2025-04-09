@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -226,12 +226,20 @@ namespace Il2CppDumper
                     if (codeGenModule.rgctxsCount > 0)
                     {
                         var rgctxs = MapVATR<Il2CppRGCTXDefinition>(codeGenModule.rgctxs, codeGenModule.rgctxsCount);
-                        var rgctxRanges = MapVATR<Il2CppTokenRangePair>(codeGenModule.rgctxRanges, codeGenModule.rgctxRangesCount);
-                        foreach (var rgctxRange in rgctxRanges)
+                        foreach (var rgctx in rgctxs)
                         {
-                            var rgctxDefs = new Il2CppRGCTXDefinition[rgctxRange.range.length];
-                            Array.Copy(rgctxs, rgctxRange.range.start, rgctxDefs, 0, rgctxRange.range.length);
-                            rgctxsDefDictionary.Add(rgctxRange.token, rgctxDefs);
+                            if (rgctx.data.rgctxDataDummy < 0x30000000)
+                            {
+                                continue;
+                            }
+                            if (!rgctxsDefDictionary.ContainsKey(rgctx.index))
+                            {
+                                rgctxsDefDictionary.Add(rgctx.index, new[] { rgctx });
+                            }
+                            else
+                            {
+                                rgctxsDefDictionary[rgctx.index].Append(rgctx);
+                            }
                         }
                     }
                 }
@@ -239,110 +247,10 @@ namespace Il2CppDumper
             else
             {
                 methodPointers = MapVATR<ulong>(pCodeRegistration.methodPointers, pCodeRegistration.methodPointersCount);
+                Console.WriteLine($"methodPointers array initialized at offset: {pCodeRegistration.methodPointers:x}");
             }
-            genericMethodTable = MapVATR<Il2CppGenericMethodFunctionsDefinitions>(pMetadataRegistration.genericMethodTable, pMetadataRegistration.genericMethodTableCount);
-            methodSpecs = MapVATR<Il2CppMethodSpec>(pMetadataRegistration.methodSpecs, pMetadataRegistration.methodSpecsCount);
-            foreach (var table in genericMethodTable)
-            {
-                var methodSpec = methodSpecs[table.genericMethodIndex];
-                var methodDefinitionIndex = methodSpec.methodDefinitionIndex;
-                if (!methodDefinitionMethodSpecs.TryGetValue(methodDefinitionIndex, out var list))
-                {
-                    list = new List<Il2CppMethodSpec>();
-                    methodDefinitionMethodSpecs.Add(methodDefinitionIndex, list);
-                }
-                list.Add(methodSpec);
-                methodSpecGenericMethodPointers.Add(methodSpec, genericMethodPointers[table.indices.methodIndex]);
-            }
-        }
 
-        public T MapVATR<T>(ulong addr) where T : new()
-        {
-            return ReadClass<T>(MapVATR(addr));
-        }
-
-        public T[] MapVATR<T>(ulong addr, ulong count) where T : new()
-        {
-            return ReadClassArray<T>(MapVATR(addr), count);
-        }
-
-        public T[] MapVATR<T>(ulong addr, long count) where T : new()
-        {
-            return ReadClassArray<T>(MapVATR(addr), count);
-        }
-
-        public int GetFieldOffsetFromIndex(int typeIndex, int fieldIndexInType, int fieldIndex, bool isValueType, bool isStatic)
-        {
-            try
-            {
-                var offset = -1;
-                if (fieldOffsetsArePointers)
-                {
-                    var ptr = fieldOffsets[typeIndex];
-                    if (ptr > 0)
-                    {
-                        Position = MapVATR(ptr) + 4ul * (ulong)fieldIndexInType;
-                        offset = ReadInt32();
-                    }
-                }
-                else
-                {
-                    offset = (int)fieldOffsets[fieldIndex];
-                }
-                if (offset > 0)
-                {
-                    if (isValueType && !isStatic)
-                    {
-                        if (Is32Bit)
-                        {
-                            offset -= 8;
-                        }
-                        else
-                        {
-                            offset -= 16;
-                        }
-                    }
-                }
-                return offset;
-            }
-            catch
-            {
-                return -1;
-            }
-        }
-
-        public Il2CppType GetIl2CppType(ulong pointer)
-        {
-            if (!typeDic.TryGetValue(pointer, out var type))
-            {
-                return null;
-            }
-            return type;
-        }
-
-        public ulong GetMethodPointer(string imageName, Il2CppMethodDefinition methodDef)
-        {
-            if (Version >= 24.2)
-            {
-                var methodToken = methodDef.token;
-                var ptrs = codeGenModuleMethodPointers[imageName];
-                var methodPointerIndex = methodToken & 0x00FFFFFFu;
-                return ptrs[methodPointerIndex - 1];
-            }
-            else
-            {
-                var methodIndex = methodDef.methodIndex;
-                if (methodIndex >= 0)
-                {
-                    return methodPointers[methodIndex];
-                }
-            }
-            return 0;
-        }
-
-        public virtual ulong GetRVA(ulong pointer)
-        {
-            return pointer;
+            IsDumped = true;
         }
     }
 }
